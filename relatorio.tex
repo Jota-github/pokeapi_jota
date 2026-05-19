@@ -1,0 +1,433 @@
+\documentclass[12pt]{article}
+\usepackage{sbc-template}
+\usepackage{graphicx,url}
+\usepackage[utf8]{inputenc}
+\usepackage[brazil]{babel}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+
+\sloppy
+
+\title{Comparação de Desempenho entre Abordagens Sequencial e Paralela\\
+  para Download de Imagens via PokéAPI}
+
+\author{Alexandre Jota Quaresma}
+
+\address{
+  Instituto Federal de Pernambuco (IFPE) -- Campus Belo Jardim \\
+  Curso de Engenharia de Software \\
+  Belo Jardim -- PE -- Brasil
+  \email{ajq@discente.ifpe.edu.br}
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+  This paper presents a performance comparison between sequential and parallel
+  approaches for downloading Pokémon images from the PokéAPI REST service.
+  Three parallelism strategies were implemented using Python: \texttt{threading},
+  \texttt{multiprocessing}, and \texttt{concurrent.futures}. Each approach was
+  evaluated with 50, 250, and 500 image requests, repeated 5 times to obtain
+  average execution times. Results show that all parallel approaches achieved
+  approximately 8x speedup over the sequential baseline when using 8
+  workers, with \texttt{threading} and \texttt{concurrent.futures} performing
+  nearly identically, and \texttt{multiprocessing} showing slightly higher
+  overhead for smaller workloads due to process creation costs.
+\end{abstract}
+
+\begin{resumo}
+  Este artigo apresenta uma comparação de desempenho entre abordagens sequencial
+  e paralela para o download de imagens de Pokémons a partir da API REST PokéAPI.
+  Três estratégias de paralelismo foram implementadas em Python: \texttt{threading},
+  \texttt{multiprocessing} e \texttt{concurrent.futures}. Cada abordagem foi
+  avaliada com 50, 250 e 500 requisições de imagens, repetidas 5 vezes para
+  obtenção do tempo médio de execução. Os resultados mostram que todas as
+  abordagens paralelas alcançaram aproximadamente 8x de aceleração em relação à
+  baseline sequencial com 8 workers, com \texttt{threading} e
+  \texttt{concurrent.futures} apresentando desempenho praticamente idêntico, e
+  \texttt{multiprocessing} exibindo overhead levemente maior para cargas menores
+  devido ao custo de criação de processos.
+\end{resumo}
+
+
+% =============================================================================
+\section{Introdução}
+% =============================================================================
+
+O avanço da computação paralela e distribuída tornou-se fundamental para o
+desenvolvimento de sistemas que realizam operações intensivas de entrada e saída
+(I/O), como chamadas a APIs externas e downloads de arquivos. Neste contexto,
+comparar o desempenho de diferentes estratégias de paralelismo é essencial para
+a tomada de decisões arquiteturais em projetos de software.
+
+Este trabalho tem como objetivo implementar e comparar o desempenho de uma
+abordagem sequencial com três abordagens paralelas para o download de imagens de
+Pokémons a partir da PokéAPI~\cite{pokeapi}. A PokéAPI é uma API REST gratuita
+e de código aberto que disponibiliza dados sobre Pokémons — incluindo habilidades,
+índices de jogos, imagens e espécies — servindo mais de 50 bilhões de chamadas
+por mês.
+
+As abordagens paralelas foram implementadas utilizando as bibliotecas nativas do
+Python: \texttt{threading}, \texttt{multiprocessing} e \texttt{concurrent.futures}.
+Para cada abordagem, foram testadas configurações com 2, 4 e 8
+\textit{workers}/processos, avaliadas sobre conjuntos de 50, 250 e 500
+imagens, com 5 execuções por cenário para obtenção do tempo médio.
+
+
+% =============================================================================
+\section{Fundamentação Teórica}
+% =============================================================================
+
+\subsection{PokéAPI}
+
+A PokéAPI disponibiliza o endpoint \url{https://pokeapi.co/api/v2/pokemon/\{id\}}
+para recuperar dados de Pokémons por identificador numérico sequencial. A resposta
+é retornada em formato JSON e não requer autenticação. Para este trabalho, o campo
+de interesse é \texttt{sprites.front\_default}, que contém a URL da imagem
+principal do Pokémon, a qual é baixada e armazenada em disco.
+
+\subsection{Paralelismo em Python}
+
+Python oferece três mecanismos principais para execução paralela:
+
+\textbf{threading}: permite a execução concorrente de múltiplas \textit{threads}
+dentro de um mesmo processo. Embora o GIL (\textit{Global Interpreter Lock})
+limite a paralelização de código Python puro, operações de I/O liberam o GIL,
+tornando \textit{threads} eficientes para tarefas de rede~\cite{python-threading}.
+
+\textbf{multiprocessing}: cria processos independentes com espaços de memória
+separados, contornando o GIL. É mais adequado para tarefas intensivas em CPU.
+Para I/O, o overhead de criação de processos pode reduzir o ganho de
+desempenho~\cite{python-multiprocessing}.
+
+\textbf{concurrent.futures}: oferece uma interface de alto nível unificada para
+\texttt{ThreadPoolExecutor} e \texttt{ProcessPoolExecutor}, simplificando o
+gerenciamento de \textit{pools} de \textit{workers}~\cite{python-futures}.
+
+
+% =============================================================================
+\section{Metodologia}
+% =============================================================================
+
+\subsection{Implementação}
+
+Todas as implementações foram desenvolvidas em Python 3.13, utilizando a biblioteca
+\texttt{requests} para as requisições HTTP e \texttt{os} para o armazenamento das
+imagens em disco. O processo de download de cada Pokémon consiste em duas
+requisições: (1) consulta à PokéAPI para obtenção da URL do sprite e (2) download
+da imagem a partir dessa URL.
+
+Na abordagem \textbf{sequencial}, os downloads são realizados um por vez, do
+Pokémon de id 1 ao id $N$. Nas abordagens \textbf{paralelas}, o número de
+\textit{workers} simultâneos é controlado — por \texttt{Semaphore} no
+\texttt{threading}, por \texttt{Pool} no \texttt{multiprocessing} e por
+\texttt{ThreadPoolExecutor} no \texttt{concurrent.futures}.
+
+\subsection{Protocolo de Avaliação}
+
+Para garantir a imparcialidade das medições, o diretório de imagens é removido e
+recriado antes de cada rodada, forçando o download completo a cada execução e
+eliminando a influência de cache em disco. O tempo é medido com
+\texttt{time.time()}, capturando o intervalo desde o início até o término de
+todos os downloads.
+
+Cada cenário foi executado 5 vezes. A métrica reportada é o \textbf{tempo médio
+de execução} em segundos.
+
+Os testes foram executados na seguinte configuração de hardware e software:
+
+\begin{itemize}
+  \item Sistema Operacional: Windows 11
+  \item Processador: % TODO: preencher (ex: Intel Core i5-XXXX, X núcleos)
+  \item Memória RAM: % TODO: preencher (ex: 16 GB)
+  \item Python 3.13
+  \item Conexão com a Internet: % TODO: preencher (ex: 100 Mbps)
+\end{itemize}
+
+
+% =============================================================================
+\section{Resultados}
+% =============================================================================
+
+As Tabelas~\ref{tab:seq}, \ref{tab:thread}, \ref{tab:multiproc}
+e~\ref{tab:futures} apresentam os tempos médios de execução (em segundos) para
+cada abordagem avaliada, seguidas dos gráficos comparativos.
+
+% --- Tabela 1: Sequencial ---
+\begin{table}[ht]
+\centering
+\caption{Tempo médio de execução — Abordagem Sequencial (5 rodadas)}
+\label{tab:seq}
+\begin{tabular}{cc}
+\toprule
+\textbf{Pokémons} & \textbf{Tempo Médio (s)} \\
+\midrule
+50  & 9.27 \\
+250 & 45.35 \\
+500 & 93.82 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% --- Tabela 2: Threading ---
+\begin{table}[ht]
+\centering
+\caption{Tempo médio de execução — \texttt{threading} (5 rodadas)}
+\label{tab:thread}
+\begin{tabular}{cccc}
+\toprule
+\textbf{Pokémons} & \textbf{2 Threads (s)} & \textbf{4 Threads (s)} & \textbf{8 Threads (s)} \\
+\midrule
+50  & 4.15 & 1.99 & 1.14 \\
+250 & 22.70 & 10.36 & 5.57 \\
+500 & 46.39 & 21.92 & 12.02 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% --- Tabela 3: Multiprocessing ---
+\begin{table}[ht]
+\centering
+\caption{Tempo médio de execução — \texttt{multiprocessing} (5 rodadas)}
+\label{tab:multiproc}
+\begin{tabular}{cccc}
+\toprule
+\textbf{Pokémons} & \textbf{2 Processos (s)} & \textbf{4 Processos (s)} & \textbf{8 Processos (s)} \\
+\midrule
+50  & 5.05 & 2.47 & 1.71 \\
+250 & 23.84 & 11.45 & 5.82 \\
+500 & 49.25 & 22.89 & 11.86 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% --- Tabela 4: Concurrent.futures ---
+\begin{table}[ht]
+\centering
+\caption{Tempo médio de execução — \texttt{concurrent.futures} (5 rodadas)}
+\label{tab:futures}
+\begin{tabular}{cccc}
+\toprule
+\textbf{Pokémons} & \textbf{2 Workers (s)} & \textbf{4 Workers (s)} & \textbf{8 Workers (s)} \\
+\midrule
+50  & 4.16 & 1.99 & 1.13 \\
+250 & 21.88 & 10.55 & 5.64 \\
+500 & 47.07 & 22.40 & 12.03 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% --- Gráfico 1: Sequencial vs Threading ---
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    title={Sequencial vs \texttt{threading}},
+    xlabel={Número de Pokémons},
+    ylabel={Tempo médio (s)},
+    xtick={50, 250, 500},
+    legend pos=north west,
+    ymajorgrids=true,
+    grid style=dashed,
+    width=0.85\textwidth,
+    height=6cm,
+]
+\addplot[color=black, mark=square, thick]
+    coordinates {(50,9.27)(250,45.35)(500,93.82)};
+\addplot[color=blue, mark=o, thick]
+    coordinates {(50,4.15)(250,22.70)(500,46.39)};
+\addplot[color=red, mark=triangle, thick]
+    coordinates {(50,1.99)(250,10.36)(500,21.92)};
+\addplot[color=teal, mark=diamond, thick]
+    coordinates {(50,1.14)(250,5.57)(500,12.02)};
+\legend{Sequencial, 2 threads, 4 threads, 8 threads}
+\end{axis}
+\end{tikzpicture}
+\caption{Comparação de tempo médio entre a abordagem sequencial e \texttt{threading}}
+\label{fig:seq_vs_thread}
+\end{figure}
+
+% --- Gráfico 2: Sequencial vs Multiprocessing ---
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    title={Sequencial vs \texttt{multiprocessing}},
+    xlabel={Número de Pokémons},
+    ylabel={Tempo médio (s)},
+    xtick={50, 250, 500},
+    legend pos=north west,
+    ymajorgrids=true,
+    grid style=dashed,
+    width=0.85\textwidth,
+    height=6cm,
+]
+\addplot[color=black, mark=square, thick]
+    coordinates {(50,9.27)(250,45.35)(500,93.82)};
+\addplot[color=blue, mark=o, thick]
+    coordinates {(50,5.05)(250,23.84)(500,49.25)};
+\addplot[color=red, mark=triangle, thick]
+    coordinates {(50,2.47)(250,11.45)(500,22.89)};
+\addplot[color=teal, mark=diamond, thick]
+    coordinates {(50,1.71)(250,5.82)(500,11.86)};
+\legend{Sequencial, 2 processos, 4 processos, 8 processos}
+\end{axis}
+\end{tikzpicture}
+\caption{Comparação de tempo médio entre a abordagem sequencial e \texttt{multiprocessing}}
+\label{fig:seq_vs_multi}
+\end{figure}
+
+% --- Gráfico 3: Sequencial vs Concurrent.futures ---
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    title={Sequencial vs \texttt{concurrent.futures}},
+    xlabel={Número de Pokémons},
+    ylabel={Tempo médio (s)},
+    xtick={50, 250, 500},
+    legend pos=north west,
+    ymajorgrids=true,
+    grid style=dashed,
+    width=0.85\textwidth,
+    height=6cm,
+]
+\addplot[color=black, mark=square, thick]
+    coordinates {(50,9.27)(250,45.35)(500,93.82)};
+\addplot[color=blue, mark=o, thick]
+    coordinates {(50,4.16)(250,21.88)(500,47.07)};
+\addplot[color=red, mark=triangle, thick]
+    coordinates {(50,1.99)(250,10.55)(500,22.40)};
+\addplot[color=teal, mark=diamond, thick]
+    coordinates {(50,1.13)(250,5.64)(500,12.03)};
+\legend{Sequencial, 2 workers, 4 workers, 8 workers}
+\end{axis}
+\end{tikzpicture}
+\caption{Comparação de tempo médio entre a abordagem sequencial e \texttt{concurrent.futures}}
+\label{fig:seq_vs_futures}
+\end{figure}
+
+% --- Gráfico 4: Melhor configuração de cada abordagem (8 workers) ---
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    title={Comparação geral — melhor configuração (8 workers/processos)},
+    xlabel={Número de Pokémons},
+    ylabel={Tempo médio (s)},
+    xtick={50, 250, 500},
+    legend pos=north west,
+    ymajorgrids=true,
+    grid style=dashed,
+    width=0.85\textwidth,
+    height=6cm,
+]
+\addplot[color=black, mark=square, thick]
+    coordinates {(50,9.27)(250,45.35)(500,93.82)};
+\addplot[color=blue, mark=o, thick]
+    coordinates {(50,1.14)(250,5.57)(500,12.02)};
+\addplot[color=red, mark=triangle, thick]
+    coordinates {(50,1.71)(250,5.82)(500,11.86)};
+\addplot[color=teal, mark=diamond, thick]
+    coordinates {(50,1.13)(250,5.64)(500,12.03)};
+\legend{Sequencial, Threading (8), Multiprocessing (8), Futures (8)}
+\end{axis}
+\end{tikzpicture}
+\caption{Comparação geral entre todas as abordagens na melhor configuração (8 workers/processos)}
+\label{fig:comparacao_geral}
+\end{figure}
+
+
+% =============================================================================
+\section{Discussão}
+% =============================================================================
+
+Os resultados obtidos confirmam que o paralelismo traz ganhos expressivos para
+tarefas de I/O intensivo, como o download de imagens via API REST. A abordagem
+sequencial levou 93,82 segundos para baixar 500 imagens, enquanto todas as
+versões paralelas com 8 \textit{workers} concluíram a mesma tarefa em torno de
+12 segundos — uma aceleração de aproximadamente \textbf{7,8 vezes}.
+
+As abordagens \texttt{threading} e \texttt{concurrent.futures} apresentaram
+desempenho praticamente idêntico em todos os cenários. Isso era esperado, pois o
+\texttt{concurrent.futures} com \texttt{ThreadPoolExecutor} utiliza
+\textit{threads} internamente, sendo essencialmente uma interface de mais alto
+nível para o mesmo mecanismo. Ambas se beneficiam diretamente da liberação do
+GIL durante as operações de rede, permitindo que múltiplas \textit{threads}
+realizem requisições HTTP simultaneamente sem bloqueio mútuo.
+
+O \texttt{multiprocessing} apresentou desempenho competitivo, porém com overhead
+levemente maior em cargas menores. Para 50 imagens, o tempo com 2 processos
+(5,05s) foi superior ao de 2 \textit{threads} (4,15s), evidenciando o custo de
+inicialização dos processos filhos. À medida que a carga aumenta, esse overhead
+se torna proporcionalmente menor — com 500 imagens e 8 workers, o
+\texttt{multiprocessing} (11,86s) ficou marginalmente mais rápido que o
+\texttt{threading} (12,02s), provavelmente devido a uma melhor distribuição de
+requisições entre processos com espaços de memória isolados.
+
+Quanto ao número de \textit{workers}, observou-se escalabilidade quase linear
+ao dobrar de 2 para 4 e de 4 para 8. Para 500 imagens com \texttt{threading},
+o tempo caiu de 46,39s (2 threads) para 21,92s (4 threads) e para 12,02s (8
+threads), mantendo uma proporção próxima de 2x a cada duplicação. Isso indica
+que, neste cenário, o gargalo ainda é o número de requisições concorrentes, e
+não a largura de banda ou o \textit{rate limiting} da API.
+
+
+% =============================================================================
+\section{Conclusão}
+% =============================================================================
+
+Este trabalho comparou o desempenho de abordagens sequencial e paralelas para o
+download de imagens via PokéAPI, utilizando as bibliotecas \texttt{threading},
+\texttt{multiprocessing} e \texttt{concurrent.futures} do Python. Os experimentos
+demonstraram que todas as abordagens paralelas reduziram o tempo de execução em
+aproximadamente 8 vezes em relação à versão sequencial, com 8 \textit{workers}.
+
+Para cargas de trabalho com gargalo em I/O de rede, \texttt{threading} e
+\texttt{concurrent.futures} provaram ser as escolhas mais eficientes e de menor
+complexidade de implementação. O \texttt{multiprocessing}, embora competitivo em
+cargas maiores, apresenta overhead de inicialização que o torna menos vantajoso
+para tarefas menores.
+
+Como trabalho futuro, sugere-se a avaliação de abordagens assíncronas com
+\texttt{asyncio} e \texttt{aiohttp}, que podem oferecer desempenho superior para
+I/O intensivo sem o overhead de múltiplas \textit{threads} ou processos,
+utilizando um único \textit{event loop} para gerenciar centenas de requisições
+concorrentes.
+
+
+% =============================================================================
+\bibliographystyle{sbc}
+\begin{thebibliography}{9}
+
+\bibitem{pokeapi}
+  Hallett, P. et al.
+  \textbf{PokéAPI — The RESTful Pokémon API}.
+  Disponível em: \url{https://pokeapi.co}.
+  Acesso em: maio de 2026.
+
+\bibitem{python-threading}
+  Python Software Foundation.
+  \textbf{threading — Thread-based parallelism}.
+  Disponível em: \url{https://docs.python.org/3/library/threading.html}.
+  Acesso em: maio de 2026.
+
+\bibitem{python-multiprocessing}
+  Python Software Foundation.
+  \textbf{multiprocessing — Process-based parallelism}.
+  Disponível em: \url{https://docs.python.org/3/library/multiprocessing.html}.
+  Acesso em: maio de 2026.
+
+\bibitem{python-futures}
+  Python Software Foundation.
+  \textbf{concurrent.futures — Launching parallel tasks}.
+  Disponível em: \url{https://docs.python.org/3/library/concurrent.futures.html}.
+  Acesso em: maio de 2026.
+
+\end{thebibliography}
+
+\end{document}
